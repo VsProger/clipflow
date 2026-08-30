@@ -1,5 +1,82 @@
+# === macOS ===
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+
+# === Xcode: сборка и производные данные ===
+build/
+DerivedData/
+*.o
+*.a
+*.dSYM/
+*.hmap
+*.ipa
+*.app
+*.xcarchive
+
+# === Xcode: пользовательское состояние ===
+# xcuserdata содержит breakpoints, схемы и раскладку окон конкретного разработчика —
+# в общий репозиторий это не нужно.
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.perspectivev3
+!default.perspectivev3
+
+# Общие схемы (shared) намеренно НЕ игнорируются — они нужны CI:
+# ClipFlow.xcodeproj/xcshareddata/xcschemes/ должен быть в репозитории.
+
+# === Swift Package Manager ===
 .build/
 .swiftpm/
-DerivedData/
-Distribution/AppIcon-Info.plist
+Package.resolved.backup
+# Package.resolved коммитим: он фиксирует версии зависимостей.
+# Если зависимостей нет вообще, файла тоже не будет.
+
+# === Подписи и секреты ===
+# Профили и сертификаты не должны попадать в git ни при каких условиях.
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+*.certSigningRequest
+*.pem
+*.key
+notarization-credentials*
+ExportOptions.plist
+Secrets.xcconfig
+*.local.xcconfig
+
+# === Инструменты ===
+*.swiftinterface
+.sourcekit-lsp/
+*.profraw
+*.xcresult/
+Instruments/
+*.trace
+
+*.store
+*.store-shm
+*.store-wal
+Images/
+Thumbnails/
+ClipFlow-data/
+
+# === Прочее ===
+*.log
+*.tmp
+*~
+.idea/
+.vscode/
+fastlane/report.xml
+fastlane/screenshots/
+fastlane/test_output/
