@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Песочница включена. NSPasteboard, RegisterEventHotKey и SMAppService
+	  работают внутри sandbox без дополнительных исключений.
+
+	  Ограничение: авто-вставка (CGEvent ⌘V) в sandbox недоступна — эта
+	  настройка работает только в сборке с отключённой песочницей,
+	  распространяемой вне Mac App Store.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Сеть не нужна принципиально: приложение полностью локальное. -->
+	<key>com.apple.security.network.client</key>
+	<false/>
+	<key>com.apple.security.network.server</key>
+	<false/>
+
+	<!-- Чтение файлов изображений, скопированных в Finder. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+</dict>
+</plist>
