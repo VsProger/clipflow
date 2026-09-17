@@ -1,109 +1,109 @@
 # ClipFlow
 
-Нативный менеджер буфера обмена для macOS. Swift 6, SwiftUI + AppKit, SwiftData,
-Swift Concurrency. Полностью локальный: ничего не покидает Mac.
+A native macOS clipboard manager. Swift 6 with complete strict concurrency, SwiftUI + AppKit, SwiftData. Fully local — nothing leaves the Mac, and the app has zero third-party dependencies.
 
-Требования: macOS 14+, Xcode 16+.
+Requires macOS 14+ and Xcode 16+.
 
-## Сборка
+## Overview
 
-Проект — набор исходников без `.xcodeproj` (его нет смысла держать в текстовом виде).
-Сборка за пять минут:
+macOS keeps exactly one clipboard entry, so anything you copy over is gone. ClipFlow keeps a searchable history and puts it one keystroke away (`⌘⇧V`), while treating clipboard contents as sensitive data rather than as a convenience cache.
 
-1. Xcode → **File → New → Project → macOS → App**.
-   Product Name: `ClipFlow`, Interface: **SwiftUI**, Language: **Swift**,
-   Storage: **None**, Testing System: **None**.
-2. Удалить сгенерированные `ClipFlowApp.swift` и `ContentView.swift`.
-3. Перетащить папку `Sources` в проект (**Copy items if needed**, **Create groups**).
-4. `Resources/Info.plist` — заменить сгенерированный или скопировать из него ключи;
-   главное — `LSUIElement = YES`. `Resources/ClipFlow.entitlements` подключить
-   в **Signing & Capabilities → App Sandbox**.
-5. Build Settings:
-   - `SWIFT_VERSION` = 6.0, `SWIFT_STRICT_CONCURRENCY` = complete
-   - `MACOSX_DEPLOYMENT_TARGET` = 14.0
-   - `GENERATE_INFOPLIST_FILE` = NO (используем свой Info.plist)
-6. ⌘R. Иконка появится в menu bar, приложения в Dock не будет.
+Three constraints shaped the design:
 
-Автозапуск (`SMAppService`) требует подписанной сборки — в debug-сборке
-без подписи тумблер вернётся в выключенное состояние, это нормально.
+- **Privacy is structural, not a setting.** History never leaves the machine, the storage directory is created with `0700` permissions and flagged `isExcludedFromBackup` so it reaches neither Time Machine nor iCloud, and content marked concealed or transient by other applications is never captured at all.
+- **A background agent must be cheap.** The app lives in the menu bar with no Dock presence (`LSUIElement`) and must not cost measurable battery while idle.
+- **Keyboard-first.** The common path — open, find, paste — should never need the mouse.
 
-## Структура
+## Technical Approach
+
+**Change detection.** macOS provides no clipboard notification, so detection means polling `NSPasteboard.general.changeCount`. That check is a cheap IPC call that does not read the payload, and the poll rate adapts: 0.25 s during the 15 s after a change, 1.0 s when idle. Data is read only once the counter actually moves.
+
+**Concurrency.** The project builds with `SWIFT_STRICT_CONCURRENCY = complete` under Swift 6, so cross-actor data races are a compile-time error rather than a runtime surprise. Clipboard snapshots cross actor boundaries as `ClipboardCapture`, a `Sendable` value type, and file-backed image storage is isolated inside an `actor`.
+
+**Storage split.** SwiftData holds metadata only; full-size images live on disk with thumbnails generated through ImageIO, which produces previews without fully decoding the source image. Files are deleted alongside their records, and on launch the app reconciles storage against the database to remove orphans left by an unclean shutdown.
+
+**Entry point.** The app starts from `NSApplication` in `main.swift` rather than from a SwiftUI `App`, because a menu-bar agent needs `NSPanel` behaviour and activation-policy control that the SwiftUI lifecycle does not expose.
+
+## Technologies
+
+Swift 6 · SwiftUI · AppKit · SwiftData · Swift Concurrency (actors, strict checking) · ImageIO · Carbon `RegisterEventHotKey` · `SMAppService` · App Sandbox
+
+No package dependencies.
+
+## Architecture
 
 ```
 Sources/
-├── App/                  точка входа и композиционный корень
-│   ├── main.swift            NSApplication (не SwiftUI App — см. комментарий в файле)
-│   ├── AppDelegate.swift     жизненный цикл, fatal error UI
-│   └── AppEnvironment.swift  DI, связывание сервисов, реакции на настройки
+├── App/                       entry point and composition root
+│   ├── main.swift                 NSApplication rather than SwiftUI App
+│   ├── AppDelegate.swift          lifecycle, fatal-error UI
+│   └── AppEnvironment.swift       dependency injection, settings reactions
 ├── Models/
-│   ├── ClipboardItem.swift   @Model: только метаданные
-│   ├── ClipboardCapture.swift снимок буфера (Sendable value type)
-│   └── Settings.swift        SettingsStore + типы настроек
+│   ├── ClipboardItem.swift        @Model — metadata only
+│   ├── ClipboardCapture.swift     Sendable snapshot value type
+│   └── Settings.swift             SettingsStore and setting types
 ├── Services/
-│   ├── PasteboardReader.swift читает NSPasteboard, вся политика приватности
-│   ├── ClipboardMonitor.swift адаптивный polling changeCount
-│   ├── ClipboardStore.swift   SwiftData, дедупликация, лимиты
-│   ├── ImageStorage.swift     actor: файлы изображений
-│   ├── ThumbnailService.swift ImageIO, превью без полного декодирования
-│   ├── SearchService.swift    индексация и ранжированный поиск
-│   ├── RetentionService.swift планировщик автоочистки
-│   ├── HotKeyManager.swift    RegisterEventHotKey
-│   ├── PasteWriter.swift      запись в буфер, Copy as…, авто-вставка
-│   └── LaunchAtLogin.swift    SMAppService
+│   ├── PasteboardReader.swift     NSPasteboard reads; all privacy policy lives here
+│   ├── ClipboardMonitor.swift     adaptive changeCount polling
+│   ├── ClipboardStore.swift       SwiftData persistence, deduplication, limits
+│   ├── ImageStorage.swift         actor owning image files
+│   ├── ThumbnailService.swift     ImageIO previews without full decode
+│   ├── SearchService.swift        indexing and ranked search
+│   ├── RetentionService.swift     auto-cleanup scheduler
+│   ├── HotKeyManager.swift        global hotkey registration
+│   ├── PasteWriter.swift          clipboard writes, "Copy as…", auto-paste
+│   └── LaunchAtLogin.swift        SMAppService
 ├── ViewModels/
-│   └── ClipboardViewModel.swift
 ├── UI/
-│   ├── Panel/                 NSPanel + перехват клавиатуры
-│   ├── HistoryView.swift      список, поиск, empty state
-│   ├── ItemRowView.swift      ряд, hover actions, контекстное меню
-│   ├── PreviewOverlay.swift   увеличенный preview
-│   ├── Settings/              4 таба + окно
-│   ├── MenuBar/               NSStatusItem
-│   └── Components/            превью-кеш, запись хоткея
-└── Support/                   логирование, пути, хеши, классификация, key codes
+│   ├── Panel/                     NSPanel with keyboard interception
+│   ├── Settings/                  four tabs and the settings window
+│   ├── MenuBar/                   NSStatusItem
+│   └── Components/                preview cache, shortcut recorder
+└── Support/                       logging, paths, hashing, classification, key codes
 ```
 
-Зависимостей нет — ни одного пакета.
+Data lives in `~/Library/Application Support/ClipFlow/` (inside the sandbox container): `ClipFlow.store` for metadata, `Images/` for full-size media, `Thumbnails/` for previews capped at 320 px.
 
-## Данные
+## How to Run
 
-```
-~/Library/Application Support/ClipFlow/     (в sandbox — внутри контейнера приложения)
-├── ClipFlow.store          SwiftData: метаданные
-├── Images/                 полноразмерные изображения
-└── Thumbnails/             превью ≤ 320 px
-```
+The repository ships sources without an `.xcodeproj`, since there is little value in version-controlling a generated project file. Building takes about five minutes:
 
-Каталог создаётся с правами `0700` и помечен `isExcludedFromBackup`: история
-буфера не уезжает в Time Machine и iCloud. Файлы удаляются вместе с записями;
-при запуске выполняется сверка и удаление «сирот», оставшихся после аварийного
-завершения.
+1. Xcode → **File → New → Project → macOS → App**. Product Name `ClipFlow`, Interface **SwiftUI**, Language **Swift**, Storage **None**, Testing System **None**.
+2. Delete the generated `ClipFlowApp.swift` and `ContentView.swift`.
+3. Drag the `Sources` folder into the project (**Copy items if needed**, **Create groups**).
+4. Replace the generated `Info.plist` with `Resources/Info.plist`, or copy its keys across — `LSUIElement = YES` is the one that matters. Attach `Resources/ClipFlow.entitlements` under **Signing & Capabilities → App Sandbox**.
+5. Build Settings:
+   - `SWIFT_VERSION` = 6.0, `SWIFT_STRICT_CONCURRENCY` = complete
+   - `MACOSX_DEPLOYMENT_TARGET` = 14.0
+   - `GENERATE_INFOPLIST_FILE` = NO
+6. ⌘R. The icon appears in the menu bar; there is no Dock entry.
 
-## Клавиатура
+Launch-at-login via `SMAppService` needs a signed build — in an unsigned debug build the toggle reverting to off is expected.
 
-| Клавиши | Действие |
+## Keyboard
+
+| Keys | Action |
 |---|---|
-| ⌘⇧V | открыть/закрыть историю (настраивается) |
-| ↑ / ↓ | навигация, ⌘↑ / ⌘↓ — в начало/конец |
-| ↩ | вставить в буфер и закрыть |
-| ⌘⌫ | удалить элемент (⌫ — когда поиск пуст) |
-| ⌘Y или Space | preview |
+| ⌘⇧V | open / close history (configurable) |
+| ↑ / ↓ | navigate; ⌘↑ / ⌘↓ jump to start / end |
+| ↩ | copy to clipboard and close |
+| ⌘⌫ | delete item (⌫ alone when search is empty) |
+| ⌘Y or Space | preview |
 | ⌘P | pin / unpin |
-| ⌘K | очистить поиск |
-| ⎋ | очистить поиск → закрыть окно |
+| ⌘K | clear search |
+| ⎋ | clear search, then close |
 
-Фокус при открытии — в строке поиска; список при этом уже имеет выделение,
-поэтому «⌘⇧V → ↩» работает без промежуточных нажатий.
+Opening focuses the search field with a row already selected, so `⌘⇧V → ↩` works without intermediate keystrokes.
 
-## Что осознанно не сделано
+## Deliberate Non-Goals
 
-- **Rich text / RTF, файлы, цвета.** `ItemKind` и `ClipboardCapture.Payload`
-  расширяются добавлением case; `PasteboardReader` — единственное место,
-  которое придётся тронуть.
-- **Синхронизация между устройствами.** Противоречит privacy-модели;
-  если понадобится — только end-to-end с явным opt-in.
-- **OCR по скриншотам.** VisionKit позволяет искать по тексту на картинках;
-  задел есть — `searchIndex` уже отдельное поле, дописывать в него можно
-  постфактум.
-- **Свой Quick Look.** Preview показывается оверлеем внутри панели: отдельное
-  окно отобрало бы key-статус и сломало навигацию с клавиатуры.
+- **Rich text, files, colours.** Supported by extending `ItemKind` and `ClipboardCapture.Payload` with new cases; `PasteboardReader` is the only other place that would need touching.
+- **Cross-device sync.** It contradicts the privacy model. If it ever ships, it ships end-to-end encrypted and opt-in.
+- **A separate Quick Look window.** Preview renders as an in-panel overlay, because a separate window would steal key status and break keyboard navigation.
+
+## Future Improvements
+
+- **OCR over screenshots** using VisionKit, so image entries become text-searchable. The groundwork exists: `searchIndex` is already a separate field that can be populated after the fact.
+- **A test suite.** The pure pieces — content classification, search ranking, deduplication, retention policy — are testable without UI and should be covered first.
+- **Signed and notarised distribution**, so launch-at-login works from a real build rather than only from Xcode.
+- **Richer content types** — RTF and file references, following the extension path described above.
